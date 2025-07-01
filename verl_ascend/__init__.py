@@ -1,0 +1,1 @@
+from mindspeed import megatron_adaptor
