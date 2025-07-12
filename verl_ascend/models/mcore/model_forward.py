@@ -47,14 +47,3 @@ def gptmodel_forward(
     if value_model and post_process:
         output = output[..., 0]
     return output
-
-
-def patch_mcore_model_forwrd():
-    from verl.models import mcore
-    from verl_ascend.patch_utils import apply_patches
-
-    patch_list = [
-        ("model_forward.gptmodel_forward", gptmodel_forward)
-    ]
-
-    apply_patches(patch_list, mcore)

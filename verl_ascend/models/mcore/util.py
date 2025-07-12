@@ -82,15 +82,3 @@ def preprocess_packed_seqs(input_ids: torch.Tensor, attention_mask: torch.Tensor
         return input_ids_rmpad.unsqueeze(0), packed_seq_params
     else:
         return input_ids, packed_seq_params
-
-
-def patch_mcore_util():
-    from verl.models.mcore import util
-    
-    from verl_ascend.patch_utils import apply_patches
-
-    patch_list = [
-        ("preprocess_packed_seqs", preprocess_packed_seqs),
-    ]
-
-    apply_patches(patch_list, util)

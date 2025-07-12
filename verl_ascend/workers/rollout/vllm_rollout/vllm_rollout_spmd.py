@@ -32,15 +32,7 @@ def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_conf
 
         os.environ["CUDA_TIMER_STREAM_KAFKA_ENABLE"] = "0"
         os.environ["MEGATRON_IMPORT_TIMERS"] = "0"
-        if vllm_version in (
-            "0.5.4",
-            "0.6.3",
-        ):
-            train_tp = kwargs.get("train_tp")
-            num_tp_per_train_tp = train_tp // tensor_parallel_size
-            vllm_ps.initialize_parallel_state(tensor_model_parallel_size=tensor_parallel_size, num_tp_per_train_tp=num_tp_per_train_tp)
-        else:
-            vllm_ps.initialize_model_parallel(tensor_model_parallel_size=tensor_parallel_size)
+        vllm_ps.initialize_model_parallel(tensor_model_parallel_size=tensor_parallel_size)
 
     rope_scaling_config = getattr(model_hf_config, "rope_scaling", None)
     if not rope_scaling_config:
@@ -114,10 +106,6 @@ def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_conf
         logprobs=0,  # can be set to 0 and let actor to recompute
         max_tokens=config.response_length,
     )
-
-    # # we may detokenize the result all together later
-    if vllm_version != "0.3.1":
-        kwargs["detokenize"] = False
 
     # supporting adding any sampling params from the config file
     for k in config.keys():
