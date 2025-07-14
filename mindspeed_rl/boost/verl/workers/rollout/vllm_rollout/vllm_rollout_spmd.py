@@ -1,14 +1,77 @@
+import os
 import torch
+import socket
 from copy import deepcopy
-
 from omegaconf import DictConfig, OmegaConf
+
+import torch.distributed as dist
 from vllm import LLM, SamplingParams
+import vllm.envs as envs
 from vllm.distributed import parallel_state as vllm_ps
 from verl.workers.rollout.base import BaseRollout
 
 
-def _init_dp_envs(config: DictConfig):
-    ...
+def get_cluster_info():
+    # 确保分布式环境已初始化
+    if not dist.is_initialized():
+        raise RuntimeError("Distributed environment not initialized")
+
+    world_size = dist.get_world_size()
+
+    # 获取当前节点的IP地址
+    ip_address = _get_current_node_ip()
+
+    # 收集所有rank的IP地址
+    ip_list = [None] * world_size
+    dist.all_gather_object(ip_list, ip_address)
+
+    return ip_list
+
+
+def _get_current_node_ip() -> str:
+    try:
+        # 创建一个 UDP 套接字（仅用于获取接口信息）
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            # 连接到一个外部地址（无需真实通信）
+            s.connect(("8.8.8.8", 80))  # Google DNS 服务器
+            local_ip = s.getsockname()[0]
+    except Exception:
+        local_ip = _get_ip_by_ifname()
+        if not local_ip:
+            # 如果失败，回退到遍历接口
+            local_ip = "127.0.0.1"
+            hostname = socket.gethostname()
+            for addr in socket.getaddrinfo(hostname, None):
+                ip = addr[4][0]
+                if not ip.startswith("::"):
+                    local_ip = ip
+                    break
+    return local_ip
+
+def _init_dp_envs(config):
+    rank = torch.distributed.get_rank()
+    world_size = int(config.get("rollout_world_size", 1))
+    # world_size = int(os.getenv("WORLD_SIZE", "-1"))
+    tp_size = int(config.get("tensor_model_parallel_size", 1))
+    dp_size = int(config.get("dp_model_parallel_size", 1))
+
+    all_ranks = torch.arange(world_size).reshape(-1, dp_size, 1, tp_size)  # noqa
+    group_ranks = all_ranks.transpose(1, 3).reshape(-1, dp_size).unbind(0)
+    group_ranks = [x.tolist() for x in group_ranks]
+    ip_list = get_cluster_info()
+    for index, group_rank in enumerate(group_ranks):
+        if torch.distributed.get_rank() in group_rank:
+            os.environ["VLLM_DP_MASTER_PORT"] = str(int(os.environ.get("MASTER_PORT")) + 1 + index)
+            os.environ["VLLM_DP_MASTER_IP"] = ip_list[group_rank[0]]
+    local_dp_rank = rank // tp_size % dp_size
+    os.environ["VLLM_DP_RANK"] = str(local_dp_rank)
+    os.environ["VLLM_DP_SIZE"] = str(dp_size)
+    os.environ["VLLM_PORT"] = os.environ["VLLM_DP_MASTER_PORT"]
+    envs.VLLM_DP_RANK = int(os.environ["VLLM_DP_RANK"])
+    envs.VLLM_DP_MASTER_IP = os.environ["VLLM_DP_MASTER_IP"]
+    envs.VLLM_DP_MASTER_PORT = int(os.environ["VLLM_DP_MASTER_PORT"])
+
+    print(f"[VLLM] using TP={tp_size}, DP={dp_size}", flush=True)
 
 
 def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, **kwargs):
