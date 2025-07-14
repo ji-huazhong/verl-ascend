@@ -30,7 +30,7 @@ if [ ! -f "$init_file" ]; then
 fi
 
 # Define the content to append
-content=$'if is_npu_available():\n    from mindspeed_rl.boost import verl'
+content=$'if is_npu_available:\n    from mindspeed_rl.boost import verl'
 
 # Check if the content already exists in the file
 if grep -qxF "$content" "$init_file"; then
