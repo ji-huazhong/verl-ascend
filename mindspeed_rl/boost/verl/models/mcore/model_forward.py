@@ -1,5 +1,5 @@
 # need this patch to patch megatron
-from mindspeed import megatron_adaptor
+from mindspeed import megatron_adaptor  # noqa: F401
 
 from verl.utils.megatron_utils import unwrap_model
 

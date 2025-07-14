@@ -2,9 +2,9 @@ from setuptools import setup, find_packages
 
 
 setup(
-    name="verl_ascend",
+    name="mindspeed_rl",
     verion="0.0.1",
-    author="verl-Ascend team",
+    author="MindSpeed RL team",
     license="Apache 2.0",
     description="verl Ascend backend plugin",
     packages=find_packages(),

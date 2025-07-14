@@ -1,4 +1,3 @@
-import os
 import torch
 from copy import deepcopy
 
@@ -6,6 +5,10 @@ from omegaconf import DictConfig, OmegaConf
 from vllm import LLM, SamplingParams
 from vllm.distributed import parallel_state as vllm_ps
 from verl.workers.rollout.base import BaseRollout
+
+
+def _init_dp_envs(config: DictConfig):
+    ...
 
 
 def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_config, **kwargs):
@@ -72,7 +75,10 @@ def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_conf
         engine_kwargs["limit_mm_per_prompt"] = {"image": config.get("limit_images")}
 
     # TODO: add dp envs
-    # _init_dp_envs(config)
+    enable_infer_ep = False
+    if hasattr(config, "dp_model_parallel_size") and config.dp_model_parallel_size > 1:
+        _init_dp_envs(config)
+        enable_infer_ep = True
     self.inference_engine = LLM(
         model=model_path,
         enable_sleep_mode=True,
@@ -92,7 +98,7 @@ def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_conf
         enable_prefix_caching=True,
         trust_remote_code=trust_remote_code,
         seed=config.get("seed", 0),
-        enable_expert_parallel=True,
+        enable_expert_parallel=enable_infer_ep,
         **lora_kwargs,
         **engine_kwargs,
     )
@@ -119,7 +125,7 @@ def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_conf
 
 def patch_vllm_rollout_spmd():
     from verl.workers.rollout.vllm_rollout import vLLMRollout
-    from verl_ascend.patch_utils import apply_patches
+    from mindspeed_rl.boost.patch_utils import apply_patches
 
     patch_list = [
         ("__init__", __init__),
