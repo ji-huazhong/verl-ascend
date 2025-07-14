@@ -1,0 +1,200 @@
+import os
+import socket
+
+import hydra
+import ray
+from verl.trainer.constants_ppo import PPO_RAY_RUNTIME_ENV
+from verl.trainer.main_ppo import create_rl_dataset, create_rl_sampler
+from verl.trainer.ppo.reward import load_reward_manager
+
+from .async_ray_trainer import AsyncRayPPOTrainer
+
+
+@hydra.main(config_path="config", config_name="async_ppo_trainer", version_base=None)
+def main(config):
+    run_ppo(config)
+
+
+# Define a function to run the PPO-like training process
+def run_ppo(config) -> None:
+    # Check if Ray is not initialized
+    if not ray.is_initialized():
+        ray.init(
+            runtime_env=PPO_RAY_RUNTIME_ENV,
+            num_cpus=config.ray_init.num_cpus,
+        )
+
+    runner = TaskRunner.remote()
+    ray.get(runner.run.remote(config))
+
+    # [Optional] get the path of the timeline trace file from the configuration, default to None
+    # This file is used for performance analysis
+    timeline_json_file = config.ray_init.get("timeline_json_file", None)
+    if timeline_json_file:
+        ray.timeline(filename=timeline_json_file)
+
+
+@ray.remote(num_cpus=1)  # please make sure main_task is not scheduled on head
+class TaskRunner:
+    def run(self, config):
+        # Print the initial configuration. `resolve=True` will evaluate symbolic values.
+        from pprint import pprint
+
+        from omegaconf import OmegaConf
+
+        from verl.utils.fs import copy_to_local
+
+        print(f"TaskRunner hostname: {socket.gethostname()}, PID: {os.getpid()}")
+
+        pprint(OmegaConf.to_container(config, resolve=True))
+
+        OmegaConf.resolve(config)
+
+        # Download the checkpoint from HDFS to the local machine.
+        # `use_shm` determines whether to use shared memory, which could lead to faster model loading if turned on
+        local_path = copy_to_local(
+            config.actor_rollout_ref.model.path, use_shm=config.actor_rollout_ref.model.get("use_shm", False)
+        )
+
+        # Instantiate the tokenizer and processor.
+        from verl.utils import hf_processor, hf_tokenizer
+
+        trust_remote_code = config.data.get("trust_remote_code", False)
+        tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
+        # Used for multimodal LLM, could be None
+        processor = hf_processor(local_path, trust_remote_code=trust_remote_code, use_fast=True)
+
+        # Version validation for vllm.
+        if config.actor_rollout_ref.rollout.name in ["vllm"]:
+            from verl.utils.vllm_utils import is_version_ge
+
+            if config.actor_rollout_ref.model.get("lora_rank", 0) > 0:
+                if not is_version_ge(pkg="vllm", minver="0.7.3"):
+                    raise NotImplementedError("PPO LoRA is not supported before vllm 0.7.3")
+
+        # Define worker classes based on the actor strategy.
+        if config.actor_rollout_ref.actor.strategy in {"fsdp", "fsdp2"}:
+            raise NotImplementedError
+
+        elif config.actor_rollout_ref.actor.strategy == "megatron":
+            assert config.actor_rollout_ref.actor.strategy == config.critic.strategy
+            from verl.single_controller.ray.megatron import NVMegatronRayWorkerGroup
+
+            from .async_megatron_workers import (
+                ActorRolloutRefWorker,
+                AsyncActorRolloutRefWorker,
+                CriticWorker,
+                RolloutWorker,
+            )
+
+            actor_rollout_cls = (
+                AsyncActorRolloutRefWorker
+                if config.actor_rollout_ref.rollout.mode == "async"
+                else ActorRolloutRefWorker
+            )
+            ray_worker_group_cls = NVMegatronRayWorkerGroup
+
+        else:
+            raise NotImplementedError
+
+        from .async_ray_trainer import ResourcePoolManager, Role
+
+        # Map roles to their corresponding remote worker classes.
+        role_worker_mapping = {
+            Role.Actor: ray.remote(actor_rollout_cls),
+            Role.Rollout: ray.remote(RolloutWorker),
+            Role.Critic: ray.remote(CriticWorker),
+        }
+
+        # Define the resource pool specification.
+        # Map roles to the resource pool.
+        global_pool_id = "actor_pool"
+        n_gpus = config.trainer.n_gpus_per_node * config.trainer.nnodes
+        n_gpus_rollout = config.actor_rollout_ref.rollout.n_gpus
+        assert n_gpus_rollout is not None
+        assert n_gpus_rollout > 0 and n_gpus_rollout < n_gpus
+        n_gpus_actor = n_gpus - n_gpus_rollout
+        if n_gpus_rollout % config.trainer.n_gpus_per_node == 0:
+            nnodes_rollout = n_gpus_rollout // config.trainer.n_gpus_per_node
+            actor_pool = [config.trainer.n_gpus_per_node] * (config.trainer.nnodes - nnodes_rollout)
+            rollout_pool = [config.trainer.n_gpus_per_node] * nnodes_rollout
+        elif n_gpus_rollout % config.traienr.nnodes == 0:
+            actor_pool = [n_gpus_actor // config.trainer.nnodes] * config.trainer.nnodes
+            rollout_pool = [n_gpus_rollout // config.trainer.nnodes] * config.trainer.nnodes
+        else:
+            raise ValueError(
+                f"rollout.n_gpus {n_gpus_rollout} should be divisible by "
+                f" n_gpus_per_node {config.trainer.n_gpus_per_node} or "
+                f"nnodes {config.trainer.nnodes}"
+            )
+        resource_pool_spec = {
+            "actor_pool": actor_pool,
+            "rollout_pool": rollout_pool,
+        }
+        mapping = {
+            Role.Actor: "actor_pool",
+            Role.Rollout: "rollout_pool",
+            Role.Critic: "actor_pool",
+        }
+
+        # We should adopt a multi-source reward function here:
+        # - for rule-based rm, we directly call a reward score
+        # - for model-based rm, we call a model
+        # - for code related prompt, we send to a sandbox if there are test cases
+        # finally, we combine all the rewards together
+        # The reward type depends on the tag of the data
+        if config.reward_model.enable:
+            if config.reward_model.strategy in {"fsdp", "fsdp2"}:
+                raise NotImplementedError
+            elif config.reward_model.strategy == "megatron":
+                from verl.workers.megatron_workers import RewardModelWorker
+            else:
+                raise NotImplementedError
+            role_worker_mapping[Role.RewardModel] = ray.remote(RewardModelWorker)
+            mapping[Role.RewardModel] = global_pool_id
+
+        # Add a reference policy worker if KL loss or KL reward is used.
+        if config.algorithm.use_kl_in_reward or config.actor_rollout_ref.actor.use_kl_loss:
+            role_worker_mapping[Role.RefPolicy] = ray.remote(ActorRolloutRefWorker)
+            mapping[Role.RefPolicy] = global_pool_id
+
+        # Load the reward manager for training and validation.
+        reward_fn = load_reward_manager(
+            config, tokenizer, num_examine=0, **config.reward_model.get("reward_kwargs", {})
+        )
+        val_reward_fn = load_reward_manager(
+            config, tokenizer, num_examine=1, **config.reward_model.get("reward_kwargs", {})
+        )
+        resource_pool_manager = ResourcePoolManager(resource_pool_spec=resource_pool_spec, mapping=mapping)
+
+        from verl.utils.dataset.rl_dataset import collate_fn
+
+        # Create training and validation datasets.
+        train_dataset = create_rl_dataset(config.data.train_files, config.data, tokenizer, processor, is_train=True)
+        val_dataset = create_rl_dataset(config.data.val_files, config.data, tokenizer, processor, is_train=False)
+        train_sampler = create_rl_sampler(config.data, train_dataset)
+
+        # Initialize the PPO trainer.
+        trainer = AsyncRayPPOTrainer(
+            config=config,
+            tokenizer=tokenizer,
+            processor=processor,
+            role_worker_mapping=role_worker_mapping,
+            resource_pool_manager=resource_pool_manager,
+            ray_worker_group_cls=ray_worker_group_cls,
+            reward_fn=reward_fn,
+            val_reward_fn=val_reward_fn,
+            train_dataset=train_dataset,
+            val_dataset=val_dataset,
+            collate_fn=collate_fn,
+            train_sampler=train_sampler,
+            device_name=config.trainer.device,
+        )
+        # Initialize the workers of the trainer.
+        trainer.init_workers()
+        # Start the training process.
+        trainer.fit()
+
+
+if __name__ == "__main__":
+    main()
