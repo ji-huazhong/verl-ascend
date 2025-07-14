@@ -1,16 +1,27 @@
 #!/bin/bash
 
-# Find the installation path of the verl library
-verl_path=$(python -c "import verl; print(verl.__path__[0])" 2>/dev/null)
+while [[ "$#" -gt 0 ]]; do
+    case $1 in
+        --verl_path) 
+            verl_path="$2"
+            shift
+            shift
+            ;;
+        *)
+            echo "Unknown parameter passed: $1"
+            exit 1
+            ;;
+    esac
+done
 
 # Check if the verl library was found
 if [ -z "$verl_path" ]; then
-    echo "Error: verl library not found. Please ensure verl is installed correctly."
+    echo "Error: verl library not found."
     exit 1
 fi
 
 # Construct the path to the __init__.py file
-init_file="${verl_path}/__init__.py"
+init_file="${verl_path}/verl/__init__.py"
 
 # Check if the __init__.py file exists
 if [ ! -f "$init_file" ]; then

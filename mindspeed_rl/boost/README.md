@@ -12,6 +12,7 @@ Boost 是 MindSpeed RL 框架的核心模块，专为开源强化学习库提供
 ```bash
 git clone https://github.com/mindspeed-ai/mindspeed_rl.git
 cd mindspeed_rl/boost
+bash verl_patch.sh --verl_path /path/to/verl
 pip install -r requirements.txt
 python setup.py install
 ```
