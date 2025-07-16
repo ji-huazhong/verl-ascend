@@ -58,6 +58,7 @@ def inject_verl_plugin(custom_path=None):
     
     print(f"Found verl at: {verl_path}")
     
+    # 1. 修改 __init__.py 文件
     init_file = os.path.join(verl_path, "__init__.py")
     if not os.path.exists(init_file):
         print(f"Error: verl initialization file not found: {init_file}")
@@ -83,17 +84,58 @@ if is_npu_available:
     
     if import_content in content:
         print(f"Info: {init_file} already contains NPU acceleration import")
+    else:
+        # 添加注入内容
+        try:
+            with open(init_file, "a") as f:
+                f.write(import_content)
+            print(f"Successfully modified {init_file} to add NPU acceleration support")
+        except Exception as e:
+            print(f"Error writing to {init_file}: {e}")
+            return False
+    
+    # 2. 修改 linear_cross_entropy.py 文件
+    linear_cross_entropy_file = os.path.join(verl_path, "utils", "kernel", "linear_cross_entropy.py")
+    if not os.path.exists(linear_cross_entropy_file):
+        print(f"Warning: linear_cross_entropy file not found: {linear_cross_entropy_file}")
         return True
     
-    # 添加注入内容
+    # 需要注释的行
+    line_to_comment = "from . import kernels"
+    
     try:
-        with open(init_file, "a") as f:
-            f.write(import_content)
-        print(f"Successfully modified {init_file} to add NPU acceleration support")
-        return True
+        with open(linear_cross_entropy_file, "r") as f:
+            lines = f.readlines()
+        
+        modified = False
+        new_lines = []
+        for line in lines:
+            # 检查是否是需要注释的行（并且尚未被注释）
+            if line.strip() == line_to_comment:
+                new_lines.append(f"# {line}")  # 注释掉该行
+                print(f"Commented out line in {linear_cross_entropy_file}: {line.strip()}")
+                modified = True
+            else:
+                new_lines.append(line)
+        
+        if modified:
+            # 写回修改后的内容
+            with open(linear_cross_entropy_file, "w") as f:
+                f.writelines(new_lines)
+            print(f"Successfully modified {linear_cross_entropy_file}")
+        else:
+            # 检查是否已经被注释
+            already_commented = any(f"# {line_to_comment}" in line for line in lines)
+            if already_commented:
+                print(f"Info: line already commented in {linear_cross_entropy_file}")
+            else:
+                print(f"Warning: line to comment not found in {linear_cross_entropy_file}: {line_to_comment}")
+    
     except Exception as e:
-        print(f"Error writing to {init_file}: {e}")
+        print(f"Error modifying {linear_cross_entropy_file}: {e}")
         return False
+    
+    return True
 
 # 自定义安装命令
 class CustomInstallCommand(install):
@@ -121,18 +163,25 @@ def main():
     
     # 尝试从命令行参数获取 --verl-path
     custom_path = None
-    for i, arg in enumerate(sys.argv):
+    i = 0
+    while i < len(sys.argv):
+        arg = sys.argv[i]
         if arg.startswith('--verl-path='):
             custom_path = arg.split('=', 1)[1]
             # 移除这个参数
             sys.argv.pop(i)
             break
-        elif arg == '--verl-path' and i + 1 < len(sys.argv):
-            custom_path = sys.argv[i+1]
-            # 移除这两个参数
-            sys.argv.pop(i)
-            sys.argv.pop(i)
-            break
+        elif arg == '--verl-path':
+            if i + 1 < len(sys.argv):
+                custom_path = sys.argv[i+1]
+                # 移除这两个参数
+                sys.argv.pop(i)  # 移除 --verl-path
+                sys.argv.pop(i)  # 移除路径参数
+                break
+            else:
+                print("Error: --verl-path requires a path argument")
+                sys.exit(1)
+        i += 1
     
     setup(
         name="mindspeed_rl",

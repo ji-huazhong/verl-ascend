@@ -210,3 +210,14 @@ def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_conf
     self.sampling_params = SamplingParams(**kwargs)
 
     self.pad_token_id = tokenizer.pad_token_id
+
+
+def patch_vllm_rollout_spmd():
+    from verl.workers.rollout.vllm_rollout import vLLMRollout
+    from mindspeed_rl.boost.patch_utils import apply_patches
+
+    patch_list = [
+        ("__init__", __init__),
+    ]
+
+    apply_patches(patch_list, vLLMRollout)
