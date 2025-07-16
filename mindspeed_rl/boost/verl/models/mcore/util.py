@@ -20,10 +20,13 @@ def compute_qkv_index(seq_lens):
     return q_index, kv_index
 
 
-def preprocess_packed_seqs(input_ids: torch.Tensor, attention_mask: torch.Tensor, pre_process: bool = True) -> tuple[torch.Tensor, PackedSeqParams]:
+def preprocess_packed_seqs(
+    input_ids: torch.Tensor, attention_mask: torch.Tensor, pre_process: bool = True
+) -> tuple[torch.Tensor, PackedSeqParams]:
     """
     Preprocess packed sequences
-    CP splits sequence into CP*2 chunks, and each GPU gets 2 chunks (GPU0 gets first and last chunks, GPU1 gets second and second last chunks, and so on), this is for load balancing with causal masking.
+    CP splits sequence into CP*2 chunks, and each GPU gets 2 chunks (GPU0 gets first and last chunks, GPU1
+    gets second and second last chunks, and so on), this is for load balancing with causal masking.
     See https://github.com/NVIDIA/TransformerEngine/issues/1368
     """
     batch_size = input_ids.shape[0]
@@ -56,15 +59,19 @@ def preprocess_packed_seqs(input_ids: torch.Tensor, attention_mask: torch.Tensor
             start_idx = cu_seqlens_padded[i] // cp_size
             # split to 2 chunks
             d = input_ids[i, attention_mask[i]]
-            input_ids_rmpad[start_idx : start_idx + half_seqlen] = d[half_seqlen * cp_rank : half_seqlen * (cp_rank + 1)]
+            input_ids_rmpad[start_idx : start_idx + half_seqlen] = d[
+                half_seqlen * cp_rank : half_seqlen * (cp_rank + 1)
+            ]
 
             remain_start = seqlens_in_batch_padded[i] - half_seqlen * (cp_rank + 1)
             remain_end = seqlens_in_batch_padded[i] - half_seqlen * cp_rank
             remain_end = min(remain_end, d.shape[0])
             remain_len = remain_end - remain_start
             if remain_len > 0:
-                input_ids_rmpad[start_idx + half_seqlen : start_idx + half_seqlen + remain_len] = d[remain_start:remain_end]
-    cu_seqlens_padded_div_cp = cu_seqlens_padded // cp_size
+                input_ids_rmpad[start_idx + half_seqlen : start_idx + half_seqlen + remain_len] = d[
+                    remain_start:remain_end
+                ]
+
     packed_seq_params = PackedSeqParams(
         qkv_format="thd",
         cu_seqlens_q=cu_seqlens_padded,
@@ -74,10 +81,14 @@ def preprocess_packed_seqs(input_ids: torch.Tensor, attention_mask: torch.Tensor
         cu_seqlens_q_padded=cu_seqlens_padded,
         cu_seqlens_kv_padded=cu_seqlens_padded,
     )
+
+    # patched for npu cp
+    cu_seqlens_padded_div_cp = cu_seqlens_padded // cp_size
     q_index, kv_index = compute_qkv_index(cu_seqlens_padded_div_cp.clone().tolist())
     packed_seq_params.q_index = q_index
     packed_seq_params.kv_index = kv_index
     packed_seq_params.cu_seqlens_padded_div_cp = cu_seqlens_padded_div_cp
+    
     if pre_process:
         return input_ids_rmpad.unsqueeze(0), packed_seq_params
     else:

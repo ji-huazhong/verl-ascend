@@ -5,7 +5,7 @@
 ```bash
 git clone https://github.com/volcengine/verl.git
 cd verl
-git checkout 5cbad83792b53a7afc728dde739327721db95828
+git checkout 218298720fadfc020c2fd37c7109025e48e29511
 pip install -e .
 ```
 

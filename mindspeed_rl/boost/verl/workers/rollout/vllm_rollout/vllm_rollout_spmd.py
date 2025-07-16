@@ -86,10 +86,11 @@ def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_conf
     """
     super(BaseRollout, self).__init__()
     self.config = config
-    assert not (not config.enforce_eager and config.free_cache_engine), "disable CUDA graph (enforce_eager = False) if free cache engine"
 
     tensor_parallel_size = self.config.get("tensor_model_parallel_size", 1)
-    assert tensor_parallel_size <= torch.distributed.get_world_size(), "tensor parallel size should be less than or equal to the world size"
+    assert tensor_parallel_size <= torch.distributed.get_world_size(), (
+        "tensor parallel size should be less than or equal to the world size"
+    )
     max_num_batched_tokens = self.config.get("max_num_batched_tokens", 8192)
 
     if kwargs.get("train_tp") is not None:
@@ -105,14 +106,33 @@ def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_conf
         max_position_embeddings = None
         if hasattr(model_hf_config, "max_position_embeddings"):
             max_position_embeddings = model_hf_config.max_position_embeddings
-        elif hasattr(model_hf_config, "llm_config") and hasattr(model_hf_config.llm_config, "max_position_embeddings"):
+        elif hasattr(model_hf_config, "llm_config") and hasattr(
+            model_hf_config.llm_config, "max_position_embeddings"
+        ):
             max_position_embeddings = model_hf_config.llm_config.max_position_embeddings
-        elif hasattr(model_hf_config, "text_config") and hasattr(model_hf_config.text_config, "max_position_embeddings"):
+        elif hasattr(model_hf_config, "text_config") and hasattr(
+            model_hf_config.text_config, "max_position_embeddings"
+        ):
             max_position_embeddings = model_hf_config.text_config.max_position_embeddings
         if max_position_embeddings is None:
             raise ValueError("max_position_embeddings not found in model_hf_config")
+        assert max_position_embeddings >= config.prompt_length + config.response_length, (
+            "model context length should be greater than total sequence length"
+        )
+    else:
+        # handle type where there's a length extend factor
+        # see https://qwen.readthedocs.io/en/latest/deployment/vllm.html#extended-context-support
+        # for using yarn as an example
+        rope_scaling_factor = rope_scaling_config.get("factor", 1.0)
 
-        assert max_position_embeddings >= config.prompt_length + config.response_length, "model context length should be greater than total sequence length"
+        assert (
+            model_hf_config.max_position_embeddings * rope_scaling_factor
+            >= config.prompt_length + config.response_length
+        ), (
+            "model context length should be greater than total sequence length, "
+            + f"got rope_scaling_factor={rope_scaling_factor} and "
+            + f"max_position_embeddings={model_hf_config.max_position_embeddings}"
+        )
 
     max_model_len = int(config.max_model_len or config.prompt_length + config.response_length)
 
@@ -128,7 +148,11 @@ def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_conf
     lora_kwargs = kwargs.pop("lora_kwargs", {})
     self.lora_kwargs = lora_kwargs
     # copy it to avoid secretly modifying the engine config
-    engine_kwargs = {} if "engine_kwargs" not in config or "vllm" not in config.engine_kwargs else OmegaConf.to_container(deepcopy(config.engine_kwargs.vllm))
+    engine_kwargs = (
+        {}
+        if "engine_kwargs" not in config or "vllm" not in config.engine_kwargs
+        else OmegaConf.to_container(deepcopy(config.engine_kwargs.vllm))
+    )
     # For each vLLM engine parameter,
     # - `None` means not setting it, so we pop it, and leave it to vLLM default value
     #    (which can vary across different vLLM versions);
@@ -137,11 +161,11 @@ def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_conf
     if config.get("limit_images", None):  # support for multi-image data
         engine_kwargs["limit_mm_per_prompt"] = {"image": config.get("limit_images")}
 
-    # TODO: add dp envs
-    enable_infer_ep = False
+    # patch this for npu
     if hasattr(config, "dp_model_parallel_size") and config.dp_model_parallel_size > 1:
         _init_dp_envs(config)
         enable_infer_ep = True
+
     self.inference_engine = LLM(
         model=model_path,
         enable_sleep_mode=True,
@@ -151,7 +175,6 @@ def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_conf
         enforce_eager=config.enforce_eager,
         gpu_memory_utilization=config.gpu_memory_utilization,
         disable_custom_all_reduce=False,
-        # disable_mm_preprocessor_cache=False,
         skip_tokenizer_init=False,
         max_model_len=max_model_len,
         load_format=load_format,
@@ -160,8 +183,8 @@ def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_conf
         enable_chunked_prefill=config.enable_chunked_prefill,
         enable_prefix_caching=True,
         trust_remote_code=trust_remote_code,
-        seed=config.get("seed", 0),
         enable_expert_parallel=enable_infer_ep,
+        seed=config.get("seed", 0),
         **lora_kwargs,
         **engine_kwargs,
     )
@@ -176,22 +199,14 @@ def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_conf
         max_tokens=config.response_length,
     )
 
+    kwargs["detokenize"] = False
+
     # supporting adding any sampling params from the config file
     for k in config.keys():
         if hasattr(SamplingParams(), str(k)):
             kwargs[k] = config.get(k)
-
+    kwargs["n"] = 1  # already repeat in ray_trainer
+    print(f"kwargs: {kwargs}")
     self.sampling_params = SamplingParams(**kwargs)
 
     self.pad_token_id = tokenizer.pad_token_id
-
-
-def patch_vllm_rollout_spmd():
-    from verl.workers.rollout.vllm_rollout import vLLMRollout
-    from mindspeed_rl.boost.patch_utils import apply_patches
-
-    patch_list = [
-        ("__init__", __init__),
-    ]
-
-    apply_patches(patch_list, vLLMRollout)
