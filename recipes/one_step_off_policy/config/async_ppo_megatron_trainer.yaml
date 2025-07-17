@@ -1,0 +1,11 @@
+defaults:
+  - default_config/ppo_megatron_trainer
+  - _self_
+
+
+actor_rollout_ref:
+  hybrid_engine: false
+  rollout:
+    
+    # the number of gpu for rollout model
+    n_gpus: 2

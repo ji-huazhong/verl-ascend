@@ -10,6 +10,7 @@ pip install -r vllm/requirements/build.txt -i https://mirrors.aliyun.com/pypi/si
 pip install -r vllm/requirements/common.txt -i https://mirrors.aliyun.com/pypi/simple/
 cd vllm
 VLLM_TARGET_DEVICE=empty python setup.py develop
+
 # vllm-ascend
 git clone -b v0.9.1-dev https://github.com/vllm-project/vllm-ascend.git + git checkout 02640b2f4b137cc75d1b6888697313676542cb00
 cd vllm-ascend
@@ -20,7 +21,7 @@ pip install -v -e .
 ```bash
 git clone https://github.com/volcengine/verl.git
 cd verl
-git checkout 218298720fadfc020c2fd37c7109025e48e29511
+git checkout 503ea75f533f715cf1667551bd375ec9b1e0d5fc
 pip install -e .
 ```
 
