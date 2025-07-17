@@ -306,8 +306,8 @@ class AsyncRayPPOTrainer(RayPPOTrainer):
     def create_weight_sync_group(self):
         if not self.hybrid_engine:
             # master_address = self.actor_wg.master_address
-            master_address = ray.get(self.actor_wg.workers[0]._get_node_ip())
-            master_port = ray.get(self.actor_wg.workers[0]._get_free_port())
+            master_address = ray.get(self.actor_wg.workers[0]._get_node_ip.remote())
+            master_port = ray.get(self.actor_wg.workers[0]._get_free_port.remote())
             world_size = len(self.actor_wg.workers + self.rollout_wg.workers)
             self.actor_wg.create_weight_sync_group(
                 master_address,
