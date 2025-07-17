@@ -1,5 +1,10 @@
+hydra:
+  searchpath:
+    - file://recipe/config
+
+
 defaults:
-  - default_config/ppo_megatron_trainer
+  - ppo_megatron_trainer
   - _self_
 
 

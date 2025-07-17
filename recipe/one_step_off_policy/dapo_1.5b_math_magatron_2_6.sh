@@ -138,4 +138,5 @@ python3 -m recipe.one_step_off_policy.async_main_ppo \
     trainer.total_training_steps=5 \
     trainer.default_local_dir="${CKPTS_DIR}" \
     trainer.resume_mode=auto \
-    trainer.log_val_generations=10
+    trainer.log_val_generations=10 \
+    trainer.device=npu $@
