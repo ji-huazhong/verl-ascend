@@ -162,6 +162,7 @@ def __init__(self, model_path: str, config: DictConfig, tokenizer, model_hf_conf
         engine_kwargs["limit_mm_per_prompt"] = {"image": config.get("limit_images")}
 
     # patch this for npu
+    enable_infer_ep = False
     if hasattr(config, "dp_model_parallel_size") and config.dp_model_parallel_size > 1:
         _init_dp_envs(config)
         enable_infer_ep = True
