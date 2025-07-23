@@ -37,3 +37,5 @@ pip install -e .
 ```bash
 VERL_PATH=path_to_verl pip install -e .
 ```
+
+- https://vqfxhpn8te.feishu.cn/docx/ExeMdGkK6oOf4zx8DWvckZ5Qnpd?from=from_copylink
