@@ -173,9 +173,7 @@ class AsyncRayPPOTrainer(RayPPOTrainer):
         else:
             raise NotImplementedError
 
-        n_gpus = config.trainer.n_gpus_per_node * config.trainer.nnodes
-        n_gpus_actor = n_gpus - config.actor_rollout_ref.rollout.n_gpus
-        self._validate_config(n_gpus_actor)
+        self._validate_config()
         self._create_dataloader(train_dataset, val_dataset, collate_fn, train_sampler)
 
     def _validate(self):
