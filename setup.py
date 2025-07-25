@@ -137,6 +137,127 @@ if is_npu_available:
     
     return True
 
+# vllm patch
+def inject_vllm_plugin():
+    print("Searching for vllm package automatically...")
+    # 尝试多种方式查找vllm安装路径
+    paths_to_try = [
+        sysconfig.get_paths()["purelib"],
+        sysconfig.get_paths()["platlib"],
+    ] + sys.path  # 搜索所有Python路径
+    
+    vllm_path = None
+    for path in paths_to_try:
+        if not path:  # 跳过空路径
+            continue
+            
+        candidate = os.path.join(path, "vllm")
+        if os.path.exists(candidate) and os.path.isdir(candidate):
+            vllm_path = candidate
+            break
+    
+    # 使用pip show作为备用方案
+    if not vllm_path:
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "show", "vllm"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            for line in result.stdout.splitlines():
+                if line.startswith("Location:"):
+                    vllm_path = os.path.join(line.split(": ")[1], "vllm")
+                    break
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            print(f"pip show failed: {e}")
+    
+    if not vllm_path:
+        print("Error: vllm package not found. Please specify with VLLM_PATH environment variable.")
+        return False
+    
+    print(f"Found vllm at: {vllm_path}")
+
+    fp8_utils_file = os.path.join(vllm_path, "model_executor", "layers", "quantization", "utils", "fp8_utils.py")
+    if not os.path.exists(fp8_utils_file):
+        print(f"Warning: linear_cross_entropy file not found: {fp8_utils_file}")
+    else:
+        line_to_change = "from typing import Any, Callable"
+
+        try:
+            with open(fp8_utils_file, "r") as f:
+                lines = f.readlines()
+            
+            modified = False
+            new_lines = []
+            for line in lines:
+                # 检查是否是需要注释的行（并且尚未被注释）
+                if line_to_change in line.strip() and 'List' not in ine.strip():
+                    new_lines.append(f"{line[:-1]}, List\n")
+                    print(f"Commented out line in {fp8_utils_file}: {line.strip()}")
+                    modified = True
+                elif 'list' in line:
+                    new_lines.append(line.replace('list','List'))
+                    modified = True
+                else:
+                    new_lines.append(line)
+            
+            if modified:
+                # 写回修改后的内容
+                with open(fp8_utils_file, "w") as f:
+                    f.writelines(new_lines)
+                print(f"Successfully modified {fp8_utils_file}")
+            else:
+                # 检查是否已经被注释
+                already_commented = any(f"List" in line for line in lines)
+                if already_commented:
+                    print(f"Info: line already commented in {fp8_utils_file}")
+                else:
+                    print(f"Warning: line to comment not found in {fp8_utils_file}: {line_to_change}")
+        except Exception as e:
+            print(f"Error modifying {fp8_utils_file}: {e}")
+            return False
+
+    fused_moe_file = os.path.join(vllm_path, "model_executor", "layers", "fused_moe", "fused_moe.py")
+    if not os.path.exists(fused_moe_file):
+        print(f"Warning: linear_cross_entropy file not found: {fused_moe_file}")
+    else:
+        line_to_change = "from typing import Any, Callable"
+
+        try:
+            with open(fused_moe_file, "r") as f:
+                lines = f.readlines()
+            
+            modified = False
+            new_lines = []
+            for line in lines:
+                # 检查是否是需要注释的行（并且尚未被注释）
+                if line_to_change in line.strip() and 'List' not in ine.strip():
+                    new_lines.append(f"{line[:-1]}, List\n")
+                    print(f"Commented out line in {fused_moe_file}: {line.strip()}")
+                    modified = True
+                elif 'list' in line:
+                    new_lines.append(line.replace('list','List'))
+                    modified = True
+                else:
+                    new_lines.append(line)
+            
+            if modified:
+                # 写回修改后的内容
+                with open(fused_moe_file, "w") as f:
+                    f.writelines(new_lines)
+                print(f"Successfully modified {fused_moe_file}")
+            else:
+                # 检查是否已经被注释
+                already_commented = any(f"List" in line for line in lines)
+                if already_commented:
+                    print(f"Info: line already commented in {fused_moe_file}")
+                else:
+                    print(f"Warning: line to comment not found in {fused_moe_file}: {line_to_change}")
+        except Exception as e:
+            print(f"Error modifying {fused_moe_file}: {e}")
+            return False
+
 # 自定义安装命令
 class CustomInstallCommand(install):
     """自定义安装命令"""
@@ -146,6 +267,7 @@ class CustomInstallCommand(install):
         # 尝试从环境变量获取路径
         custom_path = os.environ.get('VERL_PATH', None)
         inject_verl_plugin(custom_path)
+        inject_vllm_plugin()
 
 # 自定义开发模式安装命令
 class CustomDevelopCommand(develop):
@@ -156,6 +278,7 @@ class CustomDevelopCommand(develop):
         # 尝试从环境变量获取路径
         custom_path = os.environ.get('VERL_PATH', None)
         inject_verl_plugin(custom_path)
+        inject_vllm_plugin()
 
 # 主安装函数
 def main():
