@@ -12,7 +12,7 @@ cd vllm
 VLLM_TARGET_DEVICE=empty python setup.py develop
 
 # vllm-ascend
-git clone -b v0.9.1-dev https://github.com/vllm-project/vllm-ascend.git + git checkout 02640b2f4b137cc75d1b6888697313676542cb00
+git clone -b v0.9.1-dev https://github.com/vllm-project/vllm-ascend.git + git checkout 4014ad2a46e01c79fd8d98d6283404d0bc414dce
 cd vllm-ascend
 pip install -v -e .
 ```
@@ -27,6 +27,7 @@ pip install -e .
 
 ## 3、安装插件
 ```bash
+# 请确保 vllm 已正确安装并且之后不会做覆盖
 git clone https://github.com/ji-huazhong/mindspeed-rl.git
 cd mindspeed-rl
 pip install -e .
