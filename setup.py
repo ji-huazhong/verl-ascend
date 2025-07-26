@@ -191,8 +191,7 @@ def inject_vllm_plugin():
             modified = False
             new_lines = []
             for line in lines:
-                # 检查是否是需要注释的行（并且尚未被注释）
-                if line_to_change in line.strip() and 'List' not in ine.strip():
+                if line_to_change in line.strip() and 'List' not in line.strip():
                     new_lines.append(f"{line[:-1]}, List\n")
                     print(f"Commented out line in {fp8_utils_file}: {line.strip()}")
                     modified = True
@@ -208,7 +207,6 @@ def inject_vllm_plugin():
                     f.writelines(new_lines)
                 print(f"Successfully modified {fp8_utils_file}")
             else:
-                # 检查是否已经被注释
                 already_commented = any(f"List" in line for line in lines)
                 if already_commented:
                     print(f"Info: line already commented in {fp8_utils_file}")
@@ -231,8 +229,7 @@ def inject_vllm_plugin():
             modified = False
             new_lines = []
             for line in lines:
-                # 检查是否是需要注释的行（并且尚未被注释）
-                if line_to_change in line.strip() and 'List' not in ine.strip():
+                if line_to_change in line.strip() and 'List' not in line.strip():
                     new_lines.append(f"{line[:-1]}, List\n")
                     print(f"Commented out line in {fused_moe_file}: {line.strip()}")
                     modified = True
@@ -248,7 +245,6 @@ def inject_vllm_plugin():
                     f.writelines(new_lines)
                 print(f"Successfully modified {fused_moe_file}")
             else:
-                # 检查是否已经被注释
                 already_commented = any(f"List" in line for line in lines)
                 if already_commented:
                     print(f"Info: line already commented in {fused_moe_file}")
