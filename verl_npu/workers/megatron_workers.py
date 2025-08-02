@@ -51,7 +51,6 @@ class ActorRolloutRefWorkerPatch(NPUPatchHelper[ActorRolloutRefWorker]):
             weight_converter = get_mcore_weight_converter(self.actor_model_config, self.dtype)
             sharding_manager = MegatronVLLMShardingManager(
                 inference_engine=rollout.inference_engine,
-                rollout=rollout,
                 model_config=self.actor_model_config,
                 transformer_config=self.tf_config,
                 rollout_config=self.config.rollout,
@@ -60,7 +59,7 @@ class ActorRolloutRefWorkerPatch(NPUPatchHelper[ActorRolloutRefWorker]):
                 weight_converter=weight_converter,
                 device_mesh=rollout_device_mesh,
                 offload_param=self._is_offload_param,
-
+                rollout=rollout,
                 bridge=self.bridge,
             )
             log_gpu_memory_usage("After rebuilding sharding manager", logger=logger)
