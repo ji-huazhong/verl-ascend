@@ -21,7 +21,7 @@ pip install -v -e .
 ```bash
 git clone https://github.com/volcengine/verl.git
 cd verl
-git checkout 503ea75f533f715cf1667551bd375ec9b1e0d5fc
+git checkout 53f9b2ba5e65d2e57370ed2aa59069eaa075973f
 pip install -e .
 ```
 
