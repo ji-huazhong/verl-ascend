@@ -2,7 +2,7 @@
 
 # 使用方式
 
-## 1、安装vllm和vllm-ascned
+## 1、安装vllm和vllm-ascend
 ```bash
 # vllm
 git clone -b v0.9.1 https://github.com/vllm-project/vllm.git
